@@ -1,2 +1,199 @@
-# SQL
-Repositorio de trabajos y/o practicas realizadas en SQL
+--PRACTICAS SQL UCM
+--Primer ejercicio
+-- 1 Vas a analizar las ventas y el beneficio total por categoría de producto para la cuenta "Abbot Industries" en el año 2020. Queremos saber el total de ventas de productos, cuántas unidades se vendieron, el beneficio total y el beneficio promedio por cada categoría.
+
+SELECT
+    CATEGORY, --Seleccion de columna "CATEGORY" para que los datos se agrupen por las categorias de la tabla
+    SUM(PRODUCT) AS "BENEFICIO PRODUCTO", -- Se pide la suma de la columna "PRODUCT"
+    SUM(UNITS_SOLD) AS "UNIDADES VENDIDAS", -- Se pide la suma de la columna "UNITS_SOLD"
+    SUM(TOTAL) AS "BENEFICIO TOTAL", -- Se pide la suma de la columna "TOTAL"
+    AVG(TOTAL) AS "BENEFICIO PROMEDI" -- Se pide la suma de la columna "TOTAL"
+FROM
+    SALES -- Se selecciona la tabla donde estan los datos
+WHERE
+    ACCOUNT = 'Abbot Industries' -- Aqui pedimos que los datos sean filtrados donde en la columna "ACCOUNT", este unicamente la emprsa "Abbot Industries"
+    AND YEAR = 2020 --Seleccionamos el año que queremos filtrar
+GROUP BY
+    CATEGORY -- Pedimos que todos los datos dentro del select se agrupen por "CATEGORY"
+ORDER BY
+    "BENEFICIO TOTAL" DESC; -- Se pide que los datos obtenidos sean agrupados de forma descendente por el "BENEFICIO TOTAL",
+
+
+-- 2 -- Queremos calcular el pronóstico total para 2022 y el beneficio de las ventas para el primer trimestre de 2020 y el tercer trimestre de 2021, organizando los resultados por categoría. Además, es importante saber cuáles fueron las oportunidades más recientes y antiguas para cada categoría.
+
+    SELECT
+    s.category,
+    SUM(CASE WHEN s.QUARTER = '2020 Q1' THEN s.TOTAL ELSE 0 END) AS "BENEFICIOS_2020_Q1",
+    SUM(CASE WHEN s.QUARTER = '2021 Q3' THEN s.TOTAL ELSE 0 END) AS "BENEFICIOS_2021_Q3",
+    f.pronostico,
+    f.max_opportunity_age AS "OPORTUNIDAD_MAX",
+    f.min_opportunity_age AS "OPORTUNIDAD_MIN"
+FROM
+    SALES s
+JOIN (
+        SELECT
+            category,
+            SUM(FORECAST_PROFIT) AS pronostico,
+            MAX(opportunity_age) AS max_opportunity_age,
+            MIN(opportunity_age) AS min_opportunity_age
+        FROM
+            FORECASTS
+        GROUP BY
+            category
+    ) f ON s.category = f.category
+WHERE
+    s.QUARTER IN ('2020 Q1', '2021 Q3')
+GROUP BY
+    s.category, f.pronostico, f.max_opportunity_age, f.min_opportunity_age;
+
+
+-- 3 -- En este ejercicio, vas a comparar las ventas, las unidades vendidas y el beneficio generado por diferentes industrias en las regiones APAC y EMEA. Queremos saber el ingreso total de productos, el número de unidades vendidas, el beneficio total y el beneficio promedio.
+
+SELECT
+  a.REGION,
+  a.country,
+  a.INDUSTRY,
+  SUM(s.PRODUCT) AS "TOTAL PRODUCTOS",
+  SUM(s.UNITS_SOLD) AS "UNIDADES VENDIDAS",
+  SUM(s.TOTAL) AS "BENEFICIO TOTAL",
+  CAST(AVG(s.TOTAL) AS DECIMAL(10,2)) AS "BENEFICIO PROMEDIO"
+FROM
+  SALES AS s
+INNER JOIN ACCOUNTS AS a ON s.ACCOUNT = a.ACCOUNT
+WHERE
+  a.REGION = 'APAC' OR a.REGION = 'EMEA'
+GROUP BY
+  a.INDUSTRY,
+  a.country,
+  a.REGION
+ORDER BY
+  a.REGION,
+  a.country,
+  a.INDUSTRY;
+
+-- 4 -- Necesitamos recuperar las cuentas cuyo pronóstico total en el año 2022 sea superior a $500,000. Luego, queremos calcular el beneficio total y clasificar el beneficio como "Alto" o "Normal" en función de si supera los $1.000.000
+
+WITH CuentasFiltradas AS (
+
+  SELECT
+    f.ACCOUNT,
+    SUM(f.FORECAST_PROFIT) AS PRONOSTICO_TOTAL
+  FROM
+    FORECASTS AS f
+  WHERE
+    f.YEAR = 2022
+  GROUP BY
+    f.ACCOUNT
+  HAVING
+    SUM(f.FORECAST_PROFIT) > 500000
+),
+BeneficioPorCuenta AS (
+
+  SELECT
+    cf.ACCOUNT,
+    a.INDUSTRY,
+    SUM(s.TOTAL) AS BENEFICIO_TOTAL,
+    cf.PRONOSTICO_TOTAL
+  FROM
+    CuentasFiltradas AS cf
+  INNER JOIN ACCOUNTS AS a ON cf.ACCOUNT = a.ACCOUNT
+  INNER JOIN SALES AS s ON cf.ACCOUNT = s.ACCOUNT
+  GROUP BY
+    cf.ACCOUNT, a.INDUSTRY, cf.PRONOSTICO_TOTAL
+)
+SELECT
+  b.INDUSTRY,
+  SUM(b.PRONOSTICO_TOTAL) AS PRONOSTICO_TOTAL,
+  SUM(b.BENEFICIO_TOTAL) AS BENEFICIO_TOTAL,
+  CASE
+    WHEN SUM(b.BENEFICIO_TOTAL) > 1000000 THEN 'ALTO'
+    ELSE 'NORMAL'
+  END AS RENDIMIENTO
+FROM
+  BeneficioPorCuenta AS b
+GROUP BY
+  b.INDUSTRY
+ORDER BY
+  BENEFICIO_TOTAL DESC;
+
+-- 5 -- Vas a calcular el beneficio total y acumulado por trimestre para cada industria. También vamos a agregar el forecast acumulado por industria y mostrar las oportunidades más recientes y más antiguas.
+
+WITH BeneficioPorTrimestre AS (
+  SELECT
+    a.INDUSTRY,
+    s.QUARTER,
+    SUM(s.TOTAL) AS BENEFICIO_TOTAL
+  FROM
+    SALES AS s
+  INNER JOIN ACCOUNTS AS a ON s.ACCOUNT = a.ACCOUNT
+  GROUP BY
+    a.INDUSTRY, s.QUARTER
+),
+BeneficioAcumulado AS (
+  SELECT
+    b.INDUSTRY,
+    b.QUARTER,
+    b.BENEFICIO_TOTAL,
+    SUM(b.BENEFICIO_TOTAL) OVER (
+      PARTITION BY b.INDUSTRY
+    ) AS BENEFICIO_ACUMULADO
+  FROM
+    BeneficioPorTrimestre AS b
+),
+ForecastAcumulado AS (
+  SELECT
+    a.INDUSTRY,
+    SUM(f.FORECAST_PROFIT) AS FORECAST_ACUMULADO
+  FROM
+    FORECASTS AS f
+  INNER JOIN ACCOUNTS AS a ON f.ACCOUNT = a.ACCOUNT
+  WHERE
+    f.YEAR = 2022
+  GROUP BY
+    a.INDUSTRY
+),
+Oportunidades AS (
+  SELECT
+    a.INDUSTRY,
+    MAX(f.OPPORTUNITY_AGE) AS OPORTUNIDAD_MAS_ANTIGUA,
+    MIN(f.OPPORTUNITY_AGE) AS OPORTUNIDAD_MAS_RECIENTE
+  FROM
+    FORECASTS AS f
+  INNER JOIN ACCOUNTS AS a ON f.ACCOUNT = a.ACCOUNT
+  GROUP BY
+    a.INDUSTRY
+)
+SELECT
+  ba.INDUSTRY,
+  ba.QUARTER,
+  ba.BENEFICIO_TOTAL,
+  ba.BENEFICIO_ACUMULADO,
+  fa.FORECAST_ACUMULADO,
+  op.OPORTUNIDAD_MAS_RECIENTE,
+  op.OPORTUNIDAD_MAS_ANTIGUA
+FROM
+  BeneficioAcumulado AS ba
+LEFT JOIN ForecastAcumulado AS fa ON ba.INDUSTRY = fa.INDUSTRY
+LEFT JOIN Oportunidades AS op ON ba.INDUSTRY = op.INDUSTRY
+ORDER BY
+  ba.INDUSTRY, ba.QUARTER;
+
+
+-- Caso Práctico: Análisis Libre -- Como analista de datos en SmartDesk, tu tarea es identificar un insight interesante utilizando los datos proporcionados. Deberás formular una pregunta de negocio relevante para mejorar la estrategia de ventas, pronósticos, beneficio o gestión de las unidades vendidas. Utiliza consultas SQL para justificar tu análisis mostrando los resultados obtenidos. (ANALISIS DE PROFIT_Beneficio obtenido de la venta de productos principales, año, pais y región)
+
+SELECT
+  s.YEAR,
+  a.COUNTRY,
+  a.REGION,
+  SUM(UNITS_SOLD) AS UNIDADES_VENDIDAS,
+  SUM(s.Product) AS ING_PROD_PRIN,
+FROM SALES AS s
+INNER JOIN ACCOUNTS AS a ON s.ACCOUNT = a.ACCOUNT
+WHERE s.CATEGORY = 'Break room'
+GROUP BY
+  s.YEAR,
+  a.COUNTRY,
+  a.REGION
+ORDER BY
+  s.YEAR,
+  ING_PROD_PRIN DESC;
